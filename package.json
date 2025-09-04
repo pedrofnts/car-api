@@ -1,0 +1,60 @@
+{
+  "name": "car-api",
+  "version": "1.0.0",
+  "description": "Node.js API with GraphQL consumption, OAuth 2.0, Firebird integration and REST endpoints",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "eslint src --ext .ts --fix",
+    "typecheck": "tsc --noEmit",
+    "generate": "graphql-code-generator",
+    "fetch-schema": "tsx scripts/fetch-schema.ts",
+    "test": "vitest",
+    "test:coverage": "vitest --coverage"
+  },
+  "keywords": [
+    "api",
+    "graphql",
+    "oauth",
+    "firebird",
+    "fastify",
+    "typescript"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@graphql-codegen/cli": "^5.0.0",
+    "@graphql-codegen/typescript": "^4.0.0",
+    "@graphql-codegen/typescript-graphql-request": "^6.0.0",
+    "@graphql-codegen/typescript-operations": "^4.0.0",
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "@vitest/coverage-v8": "^1.0.0",
+    "eslint": "^8.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  },
+  "dependencies": {
+    "@fastify/cors": "^9.0.0",
+    "@fastify/helmet": "^11.0.0",
+    "@fastify/rate-limit": "^9.0.0",
+    "@fastify/swagger": "^8.0.0",
+    "@fastify/swagger-ui": "^2.0.0",
+    "dotenv": "^16.0.0",
+    "fastify": "^4.0.0",
+    "graphql": "^16.0.0",
+    "graphql-request": "^6.0.0",
+    "node-firebird": "^1.1.9",
+    "opossum": "^8.0.0",
+    "p-retry": "^6.0.0",
+    "pino": "^8.0.0",
+    "pino-pretty": "^10.0.0",
+    "undici": "^6.0.0",
+    "zod": "^3.0.0"
+  }
+}

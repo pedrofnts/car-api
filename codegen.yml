@@ -1,0 +1,25 @@
+overwrite: true
+schema: 
+  - https://apiv2.catalogofraga.com.br/graphql:
+      headers:
+        Authorization: "Bearer ${OAUTH_ACCESS_TOKEN}"
+documents: "src/**/*.graphql"
+generates:
+  src/generated/graphql.ts:
+    plugins:
+      - "typescript"
+      - "typescript-operations"
+      - "typescript-graphql-request"
+    config:
+      useIndexSignature: true
+      avoidOptionals: false
+      maybeValue: T | null | undefined
+      inputMaybeValue: T | null | undefined
+      scalars:
+        DateTime: string
+        Date: string
+        Time: string
+        JSON: any
+  src/generated/schema.json:
+    plugins:
+      - "introspection"
