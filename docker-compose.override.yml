@@ -4,9 +4,6 @@ version: '3.8'
 
 services:
   car-api:
-    build:
-      context: .
-      target: development
     volumes:
       - ./src:/app/src:ro
       - ./package.json:/app/package.json:ro
@@ -19,13 +16,3 @@ services:
     ports:
       - "3000:3000"
       - "9229:9229" # Debug port
-    
-  firebird:
-    ports:
-      - "3050:3050"
-    volumes:
-      - firebird_data:/firebird/data
-      - ./sql:/docker-entrypoint-initdb.d:ro
-
-volumes:
-  firebird_data:
