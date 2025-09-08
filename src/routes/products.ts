@@ -327,6 +327,18 @@ export async function productRoutes(fastify: FastifyInstance): Promise<void> {
       const priceData = priceResult.rows[0];
       const stockData = stockResult.rows[0];
       
+      // Additional safety check for priceData (should not be needed due to length check above)
+      if (!priceData) {
+        logger.error({ requestId, cproduto, duration }, 'Price data is unexpectedly undefined');
+        return reply.status(500).send({
+          success: false,
+          error: {
+            message: 'Internal server error',
+            code: 'INTERNAL_ERROR'
+          }
+        });
+      }
+      
       // Get stock information
       const stockQuantity = stockData ? stockData.SALDO : 0;
       const isAvailable = stockQuantity > 0;
