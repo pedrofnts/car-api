@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  car-api:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+      # OAuth Configuration
+      - OAUTH_CLIENT_ID=catalog-api
+      - OAUTH_CLIENT_SECRET=42559fa52053cd38f2375e0595b50db0
+      - OAUTH_TOKEN_URL=https://accounts.fraga.com.br/realms/cat_api_ovarejao/protocol/openid-connect/token
+      - OAUTH_SCOPE=
+      # GraphQL Configuration
+      - GRAPHQL_ENDPOINT=https://apiv2.catalogofraga.com.br/graphql
+      - GRAPHQL_TIMEOUT=30000
+      # Firebird Configuration
+      - FIREBIRD_HOST=firebird
+      - FIREBIRD_PORT=3050
+      - FIREBIRD_DATABASE=/firebird/data/database.fdb
+      - FIREBIRD_USER=SYSDBA
+      - FIREBIRD_PASSWORD=masterkey
+      - FIREBIRD_POOL_MIN=5
+      - FIREBIRD_POOL_MAX=20
+      - FIREBIRD_POOL_IDLE_TIMEOUT=30000
+      - FIREBIRD_QUERY_TIMEOUT=10000
+      # Rate Limiting
+      - RATE_LIMIT_MAX=100
+      - RATE_LIMIT_WINDOW=60000
+      # Circuit Breaker
+      - CIRCUIT_BREAKER_TIMEOUT=60000
+      - CIRCUIT_BREAKER_ERROR_THRESHOLD_PERCENTAGE=50
+      - CIRCUIT_BREAKER_RESET_TIMEOUT=30000
+      # Cache Configuration
+      - CACHE_TTL=300000
+      - ENABLE_CACHE=false
+    depends_on:
+      - firebird
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  firebird:
+    image: jacobalberty/firebird:v3.0
+    ports:
+      - "3050:3050"
+    environment:
+      - FIREBIRD_DATABASE=database.fdb
+      - FIREBIRD_USER=SYSDBA
+      - FIREBIRD_PASSWORD=masterkey
+      - ISC_PASSWORD=masterkey
+    volumes:
+      - firebird_data:/firebird/data
+      - ./firebird-init:/docker-entrypoint-initdb.d
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "isql-fb", "-z", "-user", "SYSDBA", "-password", "masterkey", "localhost:database.fdb"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  firebird_data:
+    driver: local
+
+networks:
+  default:
+    name: car-api-network
