@@ -14,6 +14,7 @@ export interface FirebirdPoolConfig extends FirebirdConnectionConfig {
   max: number;
   idleTimeoutMillis: number;
   queryTimeout: number;
+  role?: string;
 }
 
 export interface FirebirdQueryOptions {

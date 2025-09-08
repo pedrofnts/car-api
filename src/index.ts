@@ -1,11 +1,16 @@
 import { createApp } from './app.js';
 import { config } from './config/env.js';
 import { logger } from './utils/logger.js';
+import { firebirdService } from './services/firebird-simple.js';
 
 async function startServer(): Promise<void> {
-  const app = createApp();
-  
   try {
+    // Initialize Firebird connection
+    logger.info('Initializing Firebird connection...');
+    await firebirdService.initialize();
+    logger.info('Firebird connection initialized successfully');
+
+    const app = createApp();
     const address = await app.listen({
       port: config.PORT,
       host: '0.0.0.0'
@@ -24,6 +29,7 @@ async function startServer(): Promise<void> {
       
       try {
         await app.close();
+        await firebirdService.destroy();
         logger.info('Server closed successfully');
         process.exit(0);
       } catch (error) {

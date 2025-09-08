@@ -7,6 +7,7 @@ import fastifySwaggerUi from '@fastify/swagger-ui';
 import { config } from '@/config/env.js';
 import { logger } from '@/utils/logger.js';
 import { vehicleRoutes } from '@/routes/vehicles.js';
+import { productRoutes } from '@/routes/products.js';
 import { AppError } from '@/utils/errors.js';
 import { generateRequestId } from '@/utils/request-id.js';
 
@@ -70,7 +71,8 @@ export function createApp(): FastifyInstance {
         }
       ],
       tags: [
-        { name: 'vehicles', description: 'Vehicle-related endpoints' }
+        { name: 'vehicles', description: 'Vehicle-related endpoints' },
+        { name: 'products', description: 'Product-related endpoints' }
       ]
     }
   });
@@ -155,6 +157,7 @@ export function createApp(): FastifyInstance {
 
   // Register routes
   fastify.register(vehicleRoutes, { prefix: '/api/v1' });
+  fastify.register(productRoutes, { prefix: '/api/v1' });
 
   // Root health check
   fastify.get('/', async () => {

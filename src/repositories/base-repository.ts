@@ -1,4 +1,4 @@
-import { firebirdService } from '@/services/firebird-connection.js';
+import { firebirdService } from '@/services/firebird-simple.js';
 import { logger } from '@/utils/logger.js';
 import type { FirebirdQueryResult } from '@/types/firebird.js';
 
