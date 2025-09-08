@@ -56,3 +56,44 @@ export interface GraphQLClientMetrics {
   averageResponseTime: number;
   lastRequestTime?: number;
 }
+
+// Types for catalogSearchByPlate query
+export interface CatalogPageInfo {
+  total: number;
+  skip: number;
+  take: number;
+}
+
+export interface ProductSpecification {
+  description: string;
+  value: string;
+}
+
+export interface ProductBrand {
+  name: string;
+}
+
+export interface CatalogProduct {
+  partNumber: string;
+  brand: ProductBrand;
+  summaryApplication: string;
+  applicationDescription: string;
+  specifications: ProductSpecification[];
+}
+
+export interface CatalogNode {
+  product: CatalogProduct;
+}
+
+export interface CatalogSearchByPlateResponse {
+  catalogSearchByPlate: {
+    pageInfo: CatalogPageInfo;
+    nodes: CatalogNode[];
+  };
+}
+
+export interface CatalogSearchByPlateVariables {
+  plate: string;
+  skip?: number;
+  take?: number;
+}

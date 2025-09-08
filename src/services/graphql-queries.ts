@@ -103,6 +103,32 @@ export const queries = {
       }
     }
   `,
+
+  catalogSearchByPlate: `
+    query CatalogSearchByPlate($plate: String!, $skip: Int, $take: Int) {
+      catalogSearchByPlate(plate: $plate, skip: $skip, take: $take) {
+        pageInfo {
+          total
+          skip
+          take
+        }
+        nodes {
+          product {
+            partNumber
+            brand {
+              name
+            }
+            summaryApplication
+            applicationDescription
+            specifications {
+              description
+              value
+            }
+          }
+        }
+      }
+    }
+  `,
 } as const;
 
 // Type-safe query execution helpers
@@ -136,6 +162,17 @@ export class GraphQLQueries {
     return this.client.request(queries.searchProducts, { 
       query, 
       ...variables 
+    });
+  }
+
+  async catalogSearchByPlate(plate: string, variables?: {
+    skip?: number;
+    take?: number;
+  }) {
+    return this.client.request(queries.catalogSearchByPlate, {
+      plate,
+      skip: variables?.skip || 0,
+      take: variables?.take || 10
     });
   }
 }
