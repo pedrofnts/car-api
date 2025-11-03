@@ -409,18 +409,14 @@ class VehicleSearchService {
             reference: 'N/A',
             quickDescription: this.createQuickDescription(node.product),
             price: formatPrice(0),
-            availability: {
-              status: 'out_of_stock' as const,
-              quantity: 0,
-              message: 'Consultar disponibilidade',
-            },
+            availability: formatAvailability(0),
           };
         }
 
         // Try to find the product in Firebird by reference (partNumber)
         const cproduto = await unifiedProductService.findCprodutoByReference(partNumber);
 
-        logger.debug({ partNumber, cproduto }, 'CPRODUTO found');
+        logger.debug({ partNumber, cproduto }, 'CPRODUTO mapping result');
 
         if (!cproduto) {
           // Product not found in Firebird, return GraphQL data only
@@ -430,11 +426,7 @@ class VehicleSearchService {
             reference: partNumber,
             quickDescription: this.createQuickDescription(node.product),
             price: formatPrice(0),
-            availability: {
-              status: 'out_of_stock' as const,
-              quantity: 0,
-              message: 'Consultar disponibilidade',
-            },
+            availability: formatAvailability(0),
           };
         }
 
@@ -450,20 +442,28 @@ class VehicleSearchService {
             reference: partNumber,
             quickDescription: this.createQuickDescription(node.product),
             price: formatPrice(0),
-            availability: {
-              status: 'out_of_stock' as const,
-              quantity: 0,
-              message: 'Consultar disponibilidade',
-            },
+            availability: formatAvailability(0),
           };
         }
 
-        logger.info({ 
-          cproduto, 
-          productDetails: JSON.stringify(productDetails, null, 2)
-        }, 'Successfully enriched product with Firebird data');
+        logger.debug({ cproduto }, 'Successfully enriched product with Firebird data');
         
-        return productDetails;
+        // Debug: Log the productDetails before returning
+        console.log('DEBUG - productDetails before return:', JSON.stringify(productDetails, null, 2));
+        
+        // Ensure we return a properly structured object
+        const result = {
+          cproduto: productDetails.cproduto,
+          name: productDetails.name,
+          reference: productDetails.reference,
+          quickDescription: productDetails.quickDescription,
+          price: productDetails.price,
+          availability: productDetails.availability,
+        };
+        
+        console.log('DEBUG - result after restructure:', JSON.stringify(result, null, 2));
+        
+        return result;
       })
     );
 

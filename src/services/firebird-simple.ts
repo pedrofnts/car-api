@@ -73,10 +73,26 @@ class SimpleFirebirdService {
     });
   }
 
-  async executeQuery<T = any>(sql: string, params: any[] = []): Promise<{ rows: T[]; count: number; executionTime: number }> {
-    const startTime = Date.now();
-    
+  private connectionPool: any[] = [];
+  private maxConnections = 5;
+  private connectionQueue: Array<{ resolve: Function; reject: Function }> = [];
+
+  private async getConnection(): Promise<any> {
     return new Promise((resolve, reject) => {
+      // Check if there's an available connection in the pool
+      if (this.connectionPool.length > 0) {
+        const connection = this.connectionPool.pop();
+        resolve(connection);
+        return;
+      }
+
+      // Add to queue if max connections reached
+      if (this.connectionQueue.length >= this.maxConnections) {
+        this.connectionQueue.push({ resolve, reject });
+        return;
+      }
+
+      // Create new connection
       Firebird.attach(this.options, (err: any, db: any) => {
         if (err) {
           reject(new DatabaseError(
@@ -85,11 +101,38 @@ class SimpleFirebirdService {
           ));
           return;
         }
+        resolve(db);
+      });
+    });
+  }
 
-        db.query(sql, params, (queryErr: any, result: any) => {
+  private releaseConnection(connection: any): void {
+    // Check if there are queued requests
+    if (this.connectionQueue.length > 0) {
+      const { resolve } = this.connectionQueue.shift()!;
+      resolve(connection);
+      return;
+    }
+
+    // Return to pool if under limit
+    if (this.connectionPool.length < this.maxConnections) {
+      this.connectionPool.push(connection);
+    } else {
+      // Close excess connections
+      connection.detach();
+    }
+  }
+
+  async executeQuery<T = any>(sql: string, params: any[] = []): Promise<{ rows: T[]; count: number; executionTime: number }> {
+    const startTime = Date.now();
+    let connection: any = null;
+    
+    try {
+      connection = await this.getConnection();
+      
+      return new Promise((resolve, reject) => {
+        connection.query(sql, params, (queryErr: any, result: any) => {
           const executionTime = Date.now() - startTime;
-          
-          db.detach();
           
           if (queryErr) {
             logger.error({ 
@@ -98,6 +141,7 @@ class SimpleFirebirdService {
               executionTime 
             }, 'Firebird query error');
             
+            this.releaseConnection(connection);
             reject(new DatabaseError(
               `Query failed: ${queryErr.message}`,
               queryErr
@@ -113,6 +157,7 @@ class SimpleFirebirdService {
             executionTime 
           }, 'Firebird query executed');
 
+          this.releaseConnection(connection);
           resolve({
             rows,
             count: rows.length,
@@ -120,7 +165,12 @@ class SimpleFirebirdService {
           });
         });
       });
-    });
+    } catch (error) {
+      if (connection) {
+        this.releaseConnection(connection);
+      }
+      throw error;
+    }
   }
 
   async healthCheck(): Promise<boolean> {
@@ -130,6 +180,24 @@ class SimpleFirebirdService {
     } catch (error) {
       logger.error({ error }, 'Firebird health check failed');
       return false;
+    }
+  }
+
+  async closeAllConnections(): Promise<void> {
+    // Close all pooled connections
+    while (this.connectionPool.length > 0) {
+      const connection = this.connectionPool.pop();
+      try {
+        connection.detach();
+      } catch (error) {
+        logger.error({ error }, 'Error closing pooled connection');
+      }
+    }
+
+    // Reject all queued requests
+    while (this.connectionQueue.length > 0) {
+      const { reject } = this.connectionQueue.shift()!;
+      reject(new Error('Service shutting down'));
     }
   }
 

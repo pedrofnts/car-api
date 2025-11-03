@@ -205,9 +205,6 @@ class UnifiedProductService {
    */
   async findCprodutoByReference(referencia: string): Promise<string | null> {
     try {
-      // Remove hífens e espaços da referência (GraphQL: "WO-156" → Firebird: "WO156")
-      const referenciaLimpa = referencia.replace(/[-\s]/g, '');
-
       const sql = `
         SELECT DISTINCT CPRODUTO
         FROM PRODUTO
@@ -215,27 +212,46 @@ class UnifiedProductService {
         ROWS 1
       `;
 
+      // Primeiro tenta sem hífens e espaços (GraphQL: "WO-156" → Firebird: "WO156")
+      const referenciaLimpa = referencia.replace(/[-\s]/g, '');
+      
       logger.debug({ 
         referenciaOriginal: referencia, 
         referenciaLimpa 
-      }, 'Buscando CPRODUTO por referência limpa');
+      }, 'Buscando CPRODUTO por referência limpa (sem hífen)');
 
-      const result = await firebirdService.executeQuery<ProductResult>(sql, [referenciaLimpa]);
+      let result = await firebirdService.executeQuery<ProductResult>(sql, [referenciaLimpa]);
 
       if (result.rows.length > 0) {
         logger.debug({ 
           referencia, 
           referenciaLimpa, 
           cproduto: result.rows[0]!.CPRODUTO 
-        }, 'CPRODUTO encontrado');
+        }, 'CPRODUTO encontrado sem hífen');
         return result.rows[0]!.CPRODUTO;
       }
 
-      logger.debug({ referencia, referenciaLimpa }, 'CPRODUTO não encontrado');
+      // Se não encontrou sem hífen, tenta com a referência original (com hífen)
+      logger.debug({ 
+        referenciaOriginal: referencia 
+      }, 'Não encontrado sem hífen, tentando com hífen');
+
+      result = await firebirdService.executeQuery<ProductResult>(sql, [referencia]);
+
+      if (result.rows.length > 0) {
+        logger.debug({ 
+          referencia, 
+          cproduto: result.rows[0]!.CPRODUTO 
+        }, 'CPRODUTO encontrado com hífen');
+        return result.rows[0]!.CPRODUTO;
+      }
+
+      logger.debug({ referencia, referenciaLimpa }, 'CPRODUTO não encontrado nem sem nem com hífen');
       return null;
     } catch (error) {
       logger.error({ referencia, error }, 'Error finding CPRODUTO by reference');
-      throw error;
+      // NÃO fazer throw do erro - retornar null para não quebrar toda a query
+      return null;
     }
   }
 
