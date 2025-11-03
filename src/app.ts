@@ -68,6 +68,10 @@ export function createApp(): FastifyInstance {
         {
           url: `http://localhost:${config.PORT}`,
           description: 'Development server'
+        },
+        {
+          url: 'https://carapi.iszap.com.br',
+          description: 'Production server'
         }
       ],
       tags: [
