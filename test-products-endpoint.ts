@@ -24,13 +24,15 @@ async function testProductsEndpoint() {
     console.log('\n🔍 Testando endpoints de produtos:');
     console.log(`GET http://localhost:${config.PORT}/api/v1/products/search?referencia=SK-385S`);
     console.log(`GET http://localhost:${config.PORT}/api/v1/products/search?referencia=SK385S`);
-    console.log(`GET http://localhost:${config.PORT}/api/v1/products/price?cproduto=P001`);
+    console.log(`GET http://localhost:${config.PORT}/api/v1/products/123456`);
+    console.log(`GET http://localhost:${config.PORT}/api/v1/products/123456?referencia=SK-385S`);
     
     // Teste com fetch
     console.log('\n🧪 Executando teste automático...');
     
     const productTestCases = ['SK-385S', 'SK385S', 'test123'];
-    const priceTestCases = ['P001', 'INVALID_CODE'];
+    const productsTestCases = ['123456', 'INVALID_CODE'];
+    const referenciaTestCases = ['SK-385S', 'SK385S', 'INVALID_REF'];
     
     // Test product search
     console.log('\n🔍 Testando busca de produtos por referência...');
@@ -47,18 +49,33 @@ async function testProductsEndpoint() {
       }
     }
 
-    // Test price search  
-    console.log('\n💰 Testando busca de preços por CPRODUTO...');
-    for (const cproduto of priceTestCases) {
+    // Test products endpoint by CPRODUTO
+    console.log('\n💰 Testando endpoint de produtos por CPRODUTO...');
+    for (const cproduto of productsTestCases) {
       try {
-        const response = await fetch(`http://localhost:${config.PORT}/api/v1/products/price?cproduto=${cproduto}`);
+        const response = await fetch(`http://localhost:${config.PORT}/api/v1/products/${cproduto}`);
         const data = await response.json();
         
-        console.log(`\n💵 Teste para CPRODUTO "${cproduto}":`);
+        console.log(`\n📦 Teste para CPRODUTO "${cproduto}":`);
         console.log(`   Status: ${response.status}`);
         console.log(`   Response:`, JSON.stringify(data, null, 2));
       } catch (error) {
         console.error(`❌ Erro no teste para "${cproduto}":`, error);
+      }
+    }
+
+    // Test products endpoint with referencia query parameter
+    console.log('\n🔗 Testando endpoint de produtos com query parameter referencia...');
+    for (const referencia of referenciaTestCases) {
+      try {
+        const response = await fetch(`http://localhost:${config.PORT}/api/v1/products/dummy?referencia=${referencia}`);
+        const data = await response.json();
+        
+        console.log(`\n🔍 Teste para referência "${referencia}" via query parameter:`);
+        console.log(`   Status: ${response.status}`);
+        console.log(`   Response:`, JSON.stringify(data, null, 2));
+      } catch (error) {
+        console.error(`❌ Erro no teste para referência "${referencia}":`, error);
       }
     }
     

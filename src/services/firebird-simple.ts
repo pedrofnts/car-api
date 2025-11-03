@@ -30,9 +30,12 @@ class SimpleFirebirdService {
   }
 
   async initialize(): Promise<void> {
-    logger.info({ 
+    logger.info({
       host: this.options.host,
-      database: this.options.database 
+      database: this.options.database,
+      user: this.options.user,
+      hasPassword: !!this.options.password,
+      passwordLength: this.options.password?.length
     }, 'Initializing Firebird connection');
 
     // Test connection

@@ -1,0 +1,347 @@
+/**
+ * Unified Product Service
+ * Combines product data, price, and stock information in a single service
+ * Optimized for AI chatbot interactions
+ */
+
+import { firebirdService } from '@/services/firebird-simple.js';
+import { logger } from '@/utils/logger.js';
+import type {
+  ChatbotProductDetails,
+  ChatbotSearchResult,
+  ChatbotBatchResult,
+} from '@/types/chatbot-responses.js';
+import { formatPrice, formatAvailability } from '@/types/chatbot-responses.js';
+
+interface ProductResult {
+  CPRODUTO: string;
+  DESCRICAO: string;
+  REFERENCIA: string;
+}
+
+interface PriceResult {
+  PRECO: number;
+}
+
+interface StockResult {
+  SALDO: number;
+}
+
+class UnifiedProductService {
+  /**
+   * Get complete product details including price and stock
+   */
+  async getProductDetails(cproduto: string): Promise<ChatbotProductDetails | null> {
+    try {
+      // Get product info, price, and stock in parallel
+      const [productResult, priceResult, stockResult] = await Promise.all([
+        this.getProductInfo(cproduto),
+        this.getProductPrice(cproduto),
+        this.getProductStock(cproduto),
+      ]);
+
+      if (!productResult || !priceResult) {
+        return null;
+      }
+
+      return {
+        cproduto: String(productResult.CPRODUTO),
+        name: productResult.DESCRICAO,
+        reference: productResult.REFERENCIA,
+        quickDescription: this.createQuickDescription(productResult.DESCRICAO),
+        price: formatPrice(priceResult.PRECO),
+        availability: formatAvailability(stockResult?.SALDO || 0),
+      };
+    } catch (error) {
+      logger.error({ cproduto, error }, 'Error getting product details');
+      throw error;
+    }
+  }
+
+  /**
+   * Search products by reference with full details
+   */
+  async searchByReference(
+    referencia: string,
+    includeDetails = false
+  ): Promise<ChatbotSearchResult> {
+    try {
+      // Remove hífens e espaços da referência (GraphQL: "WO-156" → Firebird: "WO156")
+      const referenciaLimpa = referencia.replace(/[-\s]/g, '');
+
+      const sql = `
+        SELECT DISTINCT CPRODUTO, DESCRICAO, REFERENCIA
+        FROM PRODUTO
+        WHERE UPPER(REFERENCIA) = UPPER(?)
+        ORDER BY CPRODUTO
+        ROWS 20
+      `;
+
+      logger.info({ 
+        referenciaOriginal: referencia, 
+        referenciaLimpa 
+      }, 'Buscando produtos por referência limpa');
+
+      const result = await firebirdService.executeQuery<ProductResult>(sql, [referenciaLimpa]);
+
+      let products: ChatbotProductDetails[];
+
+      if (includeDetails && result.rows.length > 0) {
+        // Fetch price and stock for all products in parallel
+        products = await this.enrichProductsWithDetails(result.rows);
+      } else {
+        // Return basic info only
+        products = result.rows.map((row) => ({
+          cproduto: String(row.CPRODUTO),
+          name: row.DESCRICAO,
+          reference: row.REFERENCIA,
+          quickDescription: this.createQuickDescription(row.DESCRICAO),
+          price: formatPrice(0), // Placeholder
+          availability: formatAvailability(0), // Placeholder
+        }));
+      }
+
+      const summary = this.createSearchSummary(products.length, 'referência', referencia);
+
+      return {
+        summary,
+        totalFound: products.length,
+        products,
+      };
+    } catch (error) {
+      logger.error({ referencia, error }, 'Error searching by reference');
+      throw error;
+    }
+  }
+
+  /**
+   * Search products by description (natural language)
+   */
+  async searchByDescription(
+    query: string,
+    includeDetails = false,
+    limit = 20
+  ): Promise<ChatbotSearchResult> {
+    try {
+      const sql = `
+        SELECT DISTINCT CPRODUTO, DESCRICAO, REFERENCIA
+        FROM PRODUTO
+        WHERE UPPER(DESCRICAO) LIKE UPPER(?)
+        ORDER BY DESCRICAO
+        ROWS ?
+      `;
+
+      const searchTerm = `%${query}%`;
+      const result = await firebirdService.executeQuery<ProductResult>(sql, [searchTerm, limit]);
+
+      let products: ChatbotProductDetails[];
+
+      if (includeDetails && result.rows.length > 0) {
+        products = await this.enrichProductsWithDetails(result.rows);
+      } else {
+        products = result.rows.map((row) => ({
+          cproduto: String(row.CPRODUTO),
+          name: row.DESCRICAO,
+          reference: row.REFERENCIA,
+          quickDescription: this.createQuickDescription(row.DESCRICAO),
+          price: formatPrice(0),
+          availability: formatAvailability(0),
+        }));
+      }
+
+      const summary = this.createSearchSummary(products.length, 'descrição', query);
+
+      return {
+        summary,
+        totalFound: products.length,
+        products,
+        suggestions: this.generateSearchSuggestions(query, products),
+      };
+    } catch (error) {
+      logger.error({ query, error }, 'Error searching by description');
+      throw error;
+    }
+  }
+
+  /**
+   * Get multiple products with full details (batch operation)
+   */
+  async getBatch(cprodutos: string[]): Promise<ChatbotBatchResult> {
+    try {
+      const uniqueCprodutos = [...new Set(cprodutos)];
+      const results = await Promise.allSettled(
+        uniqueCprodutos.map((cproduto) => this.getProductDetails(cproduto))
+      );
+
+      const products: ChatbotProductDetails[] = [];
+      const notFound: string[] = [];
+
+      results.forEach((result, index) => {
+        const cproduto = uniqueCprodutos[index]!;
+        if (result.status === 'fulfilled' && result.value) {
+          products.push(result.value);
+        } else {
+          notFound.push(cproduto);
+        }
+      });
+
+      const summary = `Encontrado${products.length !== 1 ? 's' : ''} ${products.length} de ${cprodutos.length} produto${cprodutos.length !== 1 ? 's' : ''} solicitado${cprodutos.length !== 1 ? 's' : ''}`;
+
+      return {
+        summary,
+        totalFound: products.length,
+        totalRequested: cprodutos.length,
+        products,
+        notFound,
+      };
+    } catch (error) {
+      logger.error({ cprodutos, error }, 'Error in batch operation');
+      throw error;
+    }
+  }
+
+  /**
+   * Find product by reference and return CPRODUTO
+   */
+  async findCprodutoByReference(referencia: string): Promise<string | null> {
+    try {
+      // Remove hífens e espaços da referência (GraphQL: "WO-156" → Firebird: "WO156")
+      const referenciaLimpa = referencia.replace(/[-\s]/g, '');
+
+      const sql = `
+        SELECT DISTINCT CPRODUTO
+        FROM PRODUTO
+        WHERE UPPER(REFERENCIA) = UPPER(?)
+        ROWS 1
+      `;
+
+      logger.debug({ 
+        referenciaOriginal: referencia, 
+        referenciaLimpa 
+      }, 'Buscando CPRODUTO por referência limpa');
+
+      const result = await firebirdService.executeQuery<ProductResult>(sql, [referenciaLimpa]);
+
+      if (result.rows.length > 0) {
+        logger.debug({ 
+          referencia, 
+          referenciaLimpa, 
+          cproduto: result.rows[0]!.CPRODUTO 
+        }, 'CPRODUTO encontrado');
+        return result.rows[0]!.CPRODUTO;
+      }
+
+      logger.debug({ referencia, referenciaLimpa }, 'CPRODUTO não encontrado');
+      return null;
+    } catch (error) {
+      logger.error({ referencia, error }, 'Error finding CPRODUTO by reference');
+      throw error;
+    }
+  }
+
+  // Private helper methods
+
+  private async getProductInfo(cproduto: string): Promise<ProductResult | null> {
+    const sql = `
+      SELECT CPRODUTO, DESCRICAO, REFERENCIA
+      FROM PRODUTO
+      WHERE CPRODUTO = ?
+      ROWS 1
+    `;
+
+    const result = await firebirdService.executeQuery<ProductResult>(sql, [cproduto]);
+    return result.rows.length > 0 ? result.rows[0]! : null;
+  }
+
+  private async getProductPrice(cproduto: string): Promise<PriceResult | null> {
+    const sql = `
+      SELECT PRECO
+      FROM PRECO
+      WHERE CPRODUTO = ?
+      ROWS 1
+    `;
+
+    const result = await firebirdService.executeQuery<PriceResult>(sql, [cproduto]);
+    return result.rows.length > 0 ? result.rows[0]! : null;
+  }
+
+  private async getProductStock(cproduto: string): Promise<StockResult | null> {
+    const sql = `
+      SELECT SALDO
+      FROM SALDO
+      WHERE CPRODUTO = ?
+      ROWS 1
+    `;
+
+    const result = await firebirdService.executeQuery<StockResult>(sql, [cproduto]);
+    return result.rows.length > 0 ? result.rows[0]! : null;
+  }
+
+  private async enrichProductsWithDetails(
+    products: ProductResult[]
+  ): Promise<ChatbotProductDetails[]> {
+    const enriched = await Promise.all(
+      products.map(async (product) => {
+        const [priceResult, stockResult] = await Promise.all([
+          this.getProductPrice(String(product.CPRODUTO)),
+          this.getProductStock(String(product.CPRODUTO)),
+        ]);
+
+        return {
+          cproduto: String(product.CPRODUTO),
+          name: product.DESCRICAO,
+          reference: product.REFERENCIA,
+          quickDescription: this.createQuickDescription(product.DESCRICAO),
+          price: formatPrice(priceResult?.PRECO || 0),
+          availability: formatAvailability(stockResult?.SALDO || 0),
+        };
+      })
+    );
+
+    return enriched;
+  }
+
+  private createQuickDescription(descricao: string): string {
+    // Truncate long descriptions for chatbot context
+    const maxLength = 80;
+    if (descricao.length <= maxLength) {
+      return descricao;
+    }
+    return descricao.substring(0, maxLength).trim() + '...';
+  }
+
+  private createSearchSummary(count: number, searchType: string, term: string): string {
+    if (count === 0) {
+      return `Nenhum produto encontrado para ${searchType} "${term}"`;
+    }
+    if (count === 1) {
+      return `Encontrado 1 produto para ${searchType} "${term}"`;
+    }
+    return `Encontrados ${count} produtos para ${searchType} "${term}"`;
+  }
+
+  private generateSearchSuggestions(_query: string, products: ChatbotProductDetails[]): string[] {
+    // Simple suggestion generation based on common product terms
+    const suggestions: string[] = [];
+
+    // If no results, suggest related terms
+    if (products.length === 0) {
+      return suggestions;
+    }
+
+    // Extract common words from product descriptions (simple approach)
+    const words = new Set<string>();
+    products.forEach((product) => {
+      const productWords = product.name
+        .split(/\s+/)
+        .filter((word) => word.length > 3)
+        .map((word) => word.toLowerCase());
+      productWords.forEach((word) => words.add(word));
+    });
+
+    // Return up to 3 suggestions
+    return Array.from(words).slice(0, 3);
+  }
+}
+
+export const unifiedProductService = new UnifiedProductService();
