@@ -10,9 +10,12 @@ export interface ChatbotPrice {
 }
 
 export interface ChatbotAvailability {
-  status: 'in_stock' | 'low_stock' | 'out_of_stock' | 'on_order';
-  quantity: number;
-  message: string; // User-friendly message: "Disponível para entrega imediata"
+  available: boolean; // true if product is available in stock, false otherwise
+}
+
+export interface ProductSpecification {
+  description: string;
+  value: string;
 }
 
 export interface ChatbotProduct {
@@ -22,11 +25,13 @@ export interface ChatbotProduct {
   quickDescription?: string; // Short summary for chatbot
   price?: ChatbotPrice;
   availability?: ChatbotAvailability;
+  specifications?: ProductSpecification[];
 }
 
 export interface ChatbotProductDetails extends ChatbotProduct {
-  price: ChatbotPrice;
+  price?: ChatbotPrice;
   availability: ChatbotAvailability;
+  specifications?: ProductSpecification[];
 }
 
 export interface ChatbotSearchResult {
@@ -47,7 +52,6 @@ export interface ChatbotVehicleInfo {
 
 export interface ChatbotVehicleSearchResult {
   vehicle: ChatbotVehicleInfo;
-  summary: string;
   totalFound: number;
   products: ChatbotProductDetails[];
 }
@@ -74,28 +78,9 @@ export function formatPrice(amount: number, currency = 'BRL'): ChatbotPrice {
   };
 }
 
-// Helper function to determine availability status and message
+// Helper function to determine availability
 export function formatAvailability(quantity: number): ChatbotAvailability {
-  let status: ChatbotAvailability['status'];
-  let message: string;
-
-  if (quantity === 0) {
-    status = 'out_of_stock';
-    message = 'Produto esgotado no momento';
-  } else if (quantity <= 3) {
-    status = 'low_stock';
-    message = `Últimas ${quantity} unidades disponíveis`;
-  } else if (quantity <= 10) {
-    status = 'in_stock';
-    message = `${quantity} unidades em estoque`;
-  } else {
-    status = 'in_stock';
-    message = 'Disponível para entrega imediata';
-  }
-
   return {
-    status,
-    quantity,
-    message,
+    available: quantity > 0,
   };
 }

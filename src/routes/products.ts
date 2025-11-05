@@ -65,18 +65,33 @@ export async function productRoutes(fastify: FastifyInstance): Promise<void> {
             data: {
               type: 'object',
               properties: {
+                summary: { type: 'string' },
+                totalFound: { type: 'number' },
                 products: {
                   type: 'array',
                   items: {
                     type: 'object',
                     properties: {
-                      CPRODUTO: { type: 'string' },
-                      DESCRICAO: { type: 'string' }
+                      cproduto: { type: 'string' },
+                      name: { type: 'string' },
+                      reference: { type: 'string' },
+                      price: {
+                        type: 'object',
+                        properties: {
+                          amount: { type: 'number' },
+                          currency: { type: 'string' },
+                          formatted: { type: 'string' }
+                        }
+                      },
+                      availability: {
+                        type: 'object',
+                        properties: {
+                          available: { type: 'boolean' }
+                        }
+                      }
                     }
                   }
-                },
-                searchTerm: { type: 'string' },
-                totalFound: { type: 'number' }
+                }
               }
             }
           }
@@ -115,46 +130,16 @@ export async function productRoutes(fastify: FastifyInstance): Promise<void> {
     
     try {
       const { referencia } = productSearchSchema.parse(request.query);
-      
+
       logger.info({ requestId, referencia }, 'Buscando produto por referência');
 
-      // Normalizar a referência removendo hífens para busca alternativa
-      const referenciaLimpa = referencia.replace(/[-\s]/g, '');
-      
-      // Query SQL para buscar tanto com hífen quanto sem hífen, case insensitive
-      const sql = `
-        SELECT DISTINCT CPRODUTO, DESCRICAO, REFERENCIA
-        FROM PRODUTO
-        WHERE UPPER(REFERENCIA) = UPPER(?)
-           OR UPPER(REFERENCIA) = UPPER(?)
-           OR UPPER(REPLACE(REFERENCIA, '-', '')) = UPPER(?)
-           OR UPPER(REPLACE(REFERENCIA, ' ', '')) = UPPER(?)
-        ORDER BY CPRODUTO
-      `;
-
-      const params = [
-        referencia,           // Busca exata
-        referenciaLimpa,      // Busca sem hífens/espaços
-        referenciaLimpa,      // Busca removendo hífens da coluna
-        referenciaLimpa       // Busca removendo espaços da coluna
-      ];
-
-      const result = await firebirdService.executeQuery<ProductResult>(sql, params);
+      // Use unified service to get full product details with price and stock
+      const result = await unifiedProductService.searchByReference(referencia, true);
       const duration = Date.now() - startTime;
 
-      // Debug: log o resultado exato
-      logger.info({ 
-        requestId, 
-        referencia, 
-        rawResult: result.rows,
-        firstRow: result.rows[0],
-        keys: result.rows[0] ? Object.keys(result.rows[0]) : [],
-        duration 
-      }, 'Debug: resultado da query');
-
-      if (result.rows.length === 0) {
+      if (result.totalFound === 0) {
         logger.info({ requestId, referencia, duration }, 'Nenhum produto encontrado');
-        
+
         return reply.status(404).send({
           success: false,
           error: {
@@ -164,20 +149,16 @@ export async function productRoutes(fastify: FastifyInstance): Promise<void> {
         });
       }
 
-      logger.info({ 
-        requestId, 
-        referencia, 
-        productsFound: result.rows.length,
-        duration 
+      logger.info({
+        requestId,
+        referencia,
+        productsFound: result.totalFound,
+        duration
       }, 'Produtos encontrados com sucesso');
 
       return reply.send({
         success: true,
-        data: {
-          products: result.rows,
-          searchTerm: referencia,
-          totalFound: result.rows.length
-        }
+        data: result
       });
 
     } catch (error) {
@@ -548,12 +529,7 @@ export async function productRoutes(fastify: FastifyInstance): Promise<void> {
                     availability: {
                       type: 'object',
                       properties: {
-                        status: { 
-                          type: 'string',
-                          enum: ['in_stock', 'low_stock', 'out_of_stock', 'on_order']
-                        },
-                        quantity: { type: 'number' },
-                        message: { type: 'string' }
+                        available: { type: 'boolean' }
                       }
                     }
                   }

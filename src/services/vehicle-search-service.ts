@@ -4,10 +4,8 @@
  */
 
 import { graphqlClient } from './graphql-client.js';
-import { unifiedProductService } from './unified-product-service.js';
 import { logger } from '@/utils/logger.js';
 import type { ChatbotVehicleSearchResult, ChatbotProductDetails, ChatbotVehicleInfo } from '@/types/chatbot-responses.js';
-import { formatPrice, formatAvailability } from '@/types/chatbot-responses.js';
 
 interface CatalogSearchInput {
   query?: string;
@@ -23,6 +21,7 @@ interface CatalogSearchInput {
 
 interface ProductNode {
   product: {
+    partNumber?: string;
     brand?: {
       id: string;
       imageUrl?: string;
@@ -62,7 +61,6 @@ class VehicleSearchService {
     engineTechnicalCode?: string,
     release?: string,
     query = '',
-    includeDetails = false,
     limit = 20
   ): Promise<ChatbotVehicleSearchResult> {
     try {
@@ -93,6 +91,7 @@ class VehicleSearchService {
           catalogSearch(query: $query, vehicles: $vehicles) {
             nodes {
               product {
+                partNumber
                 brand {
                   id
                   imageUrl
@@ -142,35 +141,23 @@ class VehicleSearchService {
       if (model) vehicleInfo.model = model;
       if (year) vehicleInfo.modelYear = year;
 
-      let products: ChatbotProductDetails[];
-
-      if (includeDetails && nodes.length > 0) {
-        // Enrich with pricing and stock from Firebird
-        products = await this.enrichProductsWithFirebirdData(nodes);
-      } else {
-        // Return basic GraphQL data only
-        products = nodes.map((node) => {
-          // Extract partNumber from applicationDescription since components is always null
-          const productName = node.product.applicationDescription || node.product.summaryApplication || '';
-          const match = productName.match(/- ([A-Z0-9\-\/]+)$/);
-          const partNumber = match?.[1] || 'N/A';
-          return {
-            cproduto: partNumber,
-            name: node.product.summaryApplication || node.product.applicationDescription || 'Sem descrição',
-            reference: partNumber,
-            quickDescription: this.createQuickDescription(node.product),
-            price: formatPrice(0),
-            availability: formatAvailability(0),
-          };
-        }).slice(0, limit); // Apply limit here since API doesn't support pagination
-      }
-
-      const vehicleDescription = this.formatVehicleDescription(vehicleInfo);
-      const summary = `Encontrado${products.length !== 1 ? 's' : ''} ${products.length} produto${products.length !== 1 ? 's' : ''} compatível${products.length !== 1 ? 'is' : ''} com ${vehicleDescription}${year ? ` ${year}` : ''}${engineConfiguration ? ` (${engineConfiguration})` : ''}`;
+      // Return GraphQL data only (no Firebird enrichment)
+      const products: ChatbotProductDetails[] = nodes.slice(0, limit).map((node) => {
+        const partNumber = node.product.partNumber || 'N/A';
+        const product: ChatbotProductDetails = {
+          cproduto: partNumber,
+          name: node.product.summaryApplication || node.product.applicationDescription || 'Sem descrição',
+          reference: partNumber,
+          availability: { available: false }, // No stock info from GraphQL
+        };
+        if (node.product.specifications) {
+          product.specifications = node.product.specifications;
+        }
+        return product;
+      });
 
       return {
         vehicle: vehicleInfo,
-        summary,
         totalFound: products.length,
         products,
       };
@@ -189,7 +176,6 @@ class VehicleSearchService {
     name?: string,
     model?: string,
     query = '',
-    includeDetails = false,
     limit = 20
   ): Promise<ChatbotVehicleSearchResult> {
     try {
@@ -205,6 +191,7 @@ class VehicleSearchService {
           catalogSearch(query: $query, vehicles: $vehicles) {
             nodes {
               product {
+                partNumber
                 brand {
                   id
                   imageUrl
@@ -243,35 +230,23 @@ class VehicleSearchService {
       if (name) vehicleInfo.name = name;
       if (model) vehicleInfo.model = model;
 
-      let products: ChatbotProductDetails[];
-
-      if (includeDetails && nodes.length > 0) {
-        // Enrich with pricing and stock from Firebird
-        products = await this.enrichProductsWithFirebirdData(nodes);
-      } else {
-        // Return basic GraphQL data only
-        products = nodes.map((node) => {
-          // Extract partNumber from applicationDescription since components is always null
-          const productName = node.product.applicationDescription || node.product.summaryApplication || '';
-          const match = productName.match(/- ([A-Z0-9\-\/]+)$/);
-          const partNumber = match?.[1] || 'N/A';
-          return {
-            cproduto: partNumber,
-            name: node.product.summaryApplication || node.product.applicationDescription || 'Sem descrição',
-            reference: partNumber,
-            quickDescription: this.createQuickDescription(node.product),
-            price: formatPrice(0),
-            availability: formatAvailability(0),
-          };
-        }).slice(0, limit); // Apply limit here since API doesn't support pagination
-      }
-
-      const vehicleDescription = this.formatVehicleDescription(vehicleInfo);
-      const summary = `Encontrado${products.length !== 1 ? 's' : ''} ${products.length} produto${products.length !== 1 ? 's' : ''} compatível${products.length !== 1 ? 'is' : ''} com ${vehicleDescription}`;
+      // Return GraphQL data only (no Firebird enrichment)
+      const products: ChatbotProductDetails[] = nodes.slice(0, limit).map((node) => {
+        const partNumber = node.product.partNumber || 'N/A';
+        const product: ChatbotProductDetails = {
+          cproduto: partNumber,
+          name: node.product.summaryApplication || node.product.applicationDescription || 'Sem descrição',
+          reference: partNumber,
+          availability: { available: false }, // No stock info from GraphQL
+        };
+        if (node.product.specifications) {
+          product.specifications = node.product.specifications;
+        }
+        return product;
+      });
 
       return {
         vehicle: vehicleInfo,
-        summary,
         totalFound: products.length,
         products,
       };
@@ -287,7 +262,6 @@ class VehicleSearchService {
    */
   async searchByPlate(
     plate: string,
-    includeDetails = false,
     skip = 0,
     take = 20
   ): Promise<ChatbotVehicleSearchResult> {
@@ -338,33 +312,23 @@ class VehicleSearchService {
       const vehicleInfo: ChatbotVehicleInfo = {};
       if (plate) vehicleInfo.plate = plate;
 
-      let products: ChatbotProductDetails[];
-
-      if (includeDetails && nodes.length > 0) {
-        products = await this.enrichProductsWithFirebirdData(nodes);
-      } else {
-        products = nodes.map((node) => {
-          // Extract partNumber from applicationDescription since components is always null
-          const productName = node.product.applicationDescription || node.product.summaryApplication || '';
-          const match = productName.match(/- ([A-Z0-9\-\/]+)$/);
-          const partNumber = match?.[1] || 'N/A';
-          return {
-            cproduto: partNumber,
-            name: node.product.summaryApplication || node.product.applicationDescription || 'Sem descrição',
-            reference: partNumber,
-            quickDescription: this.createQuickDescription(node.product),
-            price: formatPrice(0),
-            availability: formatAvailability(0),
-          };
-        });
-      }
-
-      const vehicleDescription = this.formatVehicleDescription(vehicleInfo);
-      const summary = `Encontrado${products.length !== 1 ? 's' : ''} ${products.length} produto${products.length !== 1 ? 's' : ''} compatível${products.length !== 1 ? 'is' : ''} com ${vehicleDescription}`;
+      // Return GraphQL data only (no Firebird enrichment)
+      const products: ChatbotProductDetails[] = nodes.map((node) => {
+        const partNumber = node.product.partNumber || 'N/A';
+        const product: ChatbotProductDetails = {
+          cproduto: partNumber,
+          name: node.product.summaryApplication || node.product.applicationDescription || 'Sem descrição',
+          reference: partNumber,
+          availability: { available: false }, // No stock info from GraphQL
+        };
+        if (node.product.specifications) {
+          product.specifications = node.product.specifications;
+        }
+        return product;
+      });
 
       return {
         vehicle: vehicleInfo,
-        summary,
         totalFound: products.length,
         products,
       };
@@ -374,149 +338,8 @@ class VehicleSearchService {
     }
   }
 
-  // Private helper methods
+  // Private helper methods - removed enrichProductsWithFirebirdData
 
-  private async enrichProductsWithFirebirdData(
-    nodes: ProductNode[]
-  ): Promise<ChatbotProductDetails[]> {
-    const enriched = await Promise.allSettled(
-      nodes.slice(0, 20).map(async (node) => { // Limit to 20 to avoid too many requests
-        // Extract partNumber from applicationDescription since components is always null
-        const productName = node.product.applicationDescription || node.product.summaryApplication || '';
-        let partNumber: string | undefined;
-        
-        // Extract partNumber from patterns like "FILTRO DE AR FRAM - CA9511"
-        const match = productName.match(/- ([A-Z0-9\-\/]+)$/);
-        if (match) {
-          partNumber = match[1];
-          logger.debug({ 
-            productName, 
-            extractedPartNumber: partNumber 
-          }, 'Extracted partNumber from applicationDescription');
-        }
-        
-        // Simplified debug log
-        logger.debug({ partNumber, productName: node.product.summaryApplication || node.product.applicationDescription }, 'Processing product');
-        
-        if (!partNumber) {
-          // No partNumber available, return basic GraphQL data
-          logger.warn({ 
-            productName: node.product.summaryApplication || node.product.applicationDescription 
-          }, 'No partNumber found in GraphQL response or product name');
-          return {
-            cproduto: 'N/A',
-            name: node.product.summaryApplication || node.product.applicationDescription || 'Sem descrição',
-            reference: 'N/A',
-            quickDescription: this.createQuickDescription(node.product),
-            price: formatPrice(0),
-            availability: formatAvailability(0),
-          };
-        }
-
-        // Try to find the product in Firebird by reference (partNumber)
-        const cproduto = await unifiedProductService.findCprodutoByReference(partNumber);
-
-        logger.debug({ partNumber, cproduto }, 'CPRODUTO mapping result');
-
-        if (!cproduto) {
-          // Product not found in Firebird, return GraphQL data only
-          return {
-            cproduto: partNumber,
-            name: node.product.summaryApplication || node.product.applicationDescription || 'Sem descrição',
-            reference: partNumber,
-            quickDescription: this.createQuickDescription(node.product),
-            price: formatPrice(0),
-            availability: formatAvailability(0),
-          };
-        }
-
-        // Get full details from Firebird
-        const productDetails = await unifiedProductService.getProductDetails(cproduto);
-
-        logger.debug({ cproduto, hasDetails: !!productDetails }, 'Product details result');
-
-        if (!productDetails) {
-          return {
-            cproduto: partNumber,
-            name: node.product.summaryApplication || node.product.applicationDescription || 'Sem descrição',
-            reference: partNumber,
-            quickDescription: this.createQuickDescription(node.product),
-            price: formatPrice(0),
-            availability: formatAvailability(0),
-          };
-        }
-
-        logger.debug({ cproduto }, 'Successfully enriched product with Firebird data');
-        
-        // Debug: Log the productDetails before returning
-        console.log('DEBUG - productDetails before return:', JSON.stringify(productDetails, null, 2));
-        
-        // Ensure we return a properly structured object
-        const result = {
-          cproduto: productDetails.cproduto,
-          name: productDetails.name,
-          reference: productDetails.reference,
-          quickDescription: productDetails.quickDescription,
-          price: productDetails.price,
-          availability: productDetails.availability,
-        };
-        
-        console.log('DEBUG - result after restructure:', JSON.stringify(result, null, 2));
-        
-        return result;
-      })
-    );
-
-    const successfulResults = enriched
-      .filter((result) => result.status === 'fulfilled')
-      .map((result) => (result as PromiseFulfilledResult<ChatbotProductDetails>).value);
-    
-    logger.info({ 
-      totalNodes: nodes.length,
-      processedNodes: enriched.length,
-      successfulResults: successfulResults.length,
-      failedResults: enriched.filter(r => r.status === 'rejected').length
-    }, 'Firebird enrichment summary');
-    
-    return successfulResults;
-  }
-
-  private createQuickDescription(product: ProductNode['product']): string {
-    const description = product.summaryApplication || product.applicationDescription || '';
-    const maxLength = 80;
-
-    if (description.length <= maxLength) {
-      return description;
-    }
-
-    return description.substring(0, maxLength).trim() + '...';
-  }
-
-  private formatVehicleDescription(vehicle: {
-    brand?: string;
-    name?: string;
-    model?: string;
-    plate?: string;
-    madeYear?: number;
-    modelYear?: number;
-  }): string {
-    const parts: string[] = [];
-
-    if (vehicle.brand) parts.push(vehicle.brand);
-    if (vehicle.name) parts.push(vehicle.name);
-    if (vehicle.model && vehicle.model !== vehicle.name) parts.push(vehicle.model);
-
-    if (vehicle.madeYear || vehicle.modelYear) {
-      const year = vehicle.modelYear || vehicle.madeYear;
-      parts.push(String(year));
-    }
-
-    if (vehicle.plate) {
-      parts.push(`(${vehicle.plate})`);
-    }
-
-    return parts.length > 0 ? parts.join(' ') : 'veículo informado';
-  }
 }
 
 export const vehicleSearchService = new VehicleSearchService();

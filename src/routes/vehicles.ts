@@ -70,7 +70,6 @@ const vehicleSearchQuerySchema = z.object({
   engineTechnicalCode: z.string().max(50).optional(),
   release: z.string().max(50).optional(),
   q: z.string().max(100).optional().default(''),
-  includeDetails: z.enum(['true', 'false']).optional().transform(val => val === 'true'),
   limit: z.string().optional().transform(val => val ? parseInt(val, 10) : 20)
 });
 
@@ -328,16 +327,15 @@ export async function vehicleRoutes(fastify: FastifyInstance): Promise<void> {
 
   // Enhanced endpoint: Search by vehicle with detailed specifications
   fastify.get<{
-    Querystring: { 
-      brand?: string; 
-      name?: string; 
-      model?: string; 
+    Querystring: {
+      brand?: string;
+      name?: string;
+      model?: string;
       year?: string;
       engineConfiguration?: string;
       engineTechnicalCode?: string;
       release?: string;
-      q?: string; 
-      includeDetails?: string; 
+      q?: string;
       limit?: string;
     };
   }>('/vehicles/search', {
@@ -389,12 +387,6 @@ export async function vehicleRoutes(fastify: FastifyInstance): Promise<void> {
             description: 'Termo de busca adicional para peças específicas (ex: "freio", "filtro")',
             maxLength: 100
           },
-          includeDetails: {
-            type: 'string',
-            enum: ['true', 'false'],
-            description: 'Incluir preço e estoque detalhados',
-            default: 'false'
-          },
           limit: {
             type: 'string',
             description: 'Número máximo de resultados',
@@ -416,12 +408,9 @@ export async function vehicleRoutes(fastify: FastifyInstance): Promise<void> {
                     brand: { type: 'string' },
                     name: { type: 'string' },
                     model: { type: 'string' },
-                    plate: { type: 'string' },
-                    madeYear: { type: 'number' },
                     modelYear: { type: 'number' }
                   }
                 },
-                summary: { type: 'string' },
                 totalFound: { type: 'number' },
                 products: {
                   type: 'array',
@@ -431,9 +420,22 @@ export async function vehicleRoutes(fastify: FastifyInstance): Promise<void> {
                       cproduto: { type: 'string' },
                       name: { type: 'string' },
                       reference: { type: 'string' },
-                      quickDescription: { type: 'string' },
-                      price: { type: 'object' },
-                      availability: { type: 'object' }
+                      availability: {
+                        type: 'object',
+                        properties: {
+                          available: { type: 'boolean' }
+                        }
+                      },
+                      specifications: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            description: { type: 'string' },
+                            value: { type: 'string' }
+                          }
+                        }
+                      }
                     }
                   }
                 }
@@ -461,17 +463,16 @@ export async function vehicleRoutes(fastify: FastifyInstance): Promise<void> {
     const startTime = Date.now();
 
     try {
-      const { 
-        brand, 
-        name, 
-        model, 
-        year, 
-        engineConfiguration, 
-        engineTechnicalCode, 
-        release, 
-        q, 
-        includeDetails, 
-        limit 
+      const {
+        brand,
+        name,
+        model,
+        year,
+        engineConfiguration,
+        engineTechnicalCode,
+        release,
+        q,
+        limit
       } = vehicleSearchQuerySchema.parse(request.query);
 
       // At least one filter must be provided
@@ -485,30 +486,28 @@ export async function vehicleRoutes(fastify: FastifyInstance): Promise<void> {
         });
       }
 
-      logger.info({ 
-        requestId, 
-        brand, 
-        name, 
-        model, 
-        year, 
-        engineConfiguration, 
-        engineTechnicalCode, 
-        release, 
-        q, 
-        includeDetails, 
-        limit 
+      logger.info({
+        requestId,
+        brand,
+        name,
+        model,
+        year,
+        engineConfiguration,
+        engineTechnicalCode,
+        release,
+        q,
+        limit
       }, 'Buscando produtos por veículo com especificações detalhadas');
 
       const result = await vehicleSearchService.searchByVehicleDetailed(
-        brand, 
-        name, 
-        model, 
-        year, 
-        engineConfiguration, 
-        engineTechnicalCode, 
-        release, 
-        q, 
-        includeDetails, 
+        brand,
+        name,
+        model,
+        year,
+        engineConfiguration,
+        engineTechnicalCode,
+        release,
+        q,
         limit
       );
       const duration = Date.now() - startTime;

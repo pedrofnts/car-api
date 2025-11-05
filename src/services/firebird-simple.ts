@@ -76,40 +76,62 @@ class SimpleFirebirdService {
   private connectionPool: any[] = [];
   private maxConnections = 5;
   private connectionQueue: Array<{ resolve: Function; reject: Function }> = [];
+  private activeConnections = 0;
+  private connectionsBeingCreated = 0;
+  private creatingConnectionMutex = Promise.resolve();
 
   private async getConnection(): Promise<any> {
     return new Promise((resolve, reject) => {
       // Check if there's an available connection in the pool
       if (this.connectionPool.length > 0) {
         const connection = this.connectionPool.pop();
+        this.activeConnections++;
         resolve(connection);
         return;
       }
 
+      // Check total connections (active + being created)
+      const totalConnections = this.activeConnections + this.connectionsBeingCreated;
+
       // Add to queue if max connections reached
-      if (this.connectionQueue.length >= this.maxConnections) {
+      if (totalConnections >= this.maxConnections) {
         this.connectionQueue.push({ resolve, reject });
         return;
       }
 
-      // Create new connection
-      Firebird.attach(this.options, (err: any, db: any) => {
-        if (err) {
-          reject(new DatabaseError(
-            `Connection failed: ${err.message}`,
-            err
-          ));
-          return;
-        }
-        resolve(db);
+      // Create new connection with mutex to prevent race condition
+      this.connectionsBeingCreated++;
+
+      this.creatingConnectionMutex = this.creatingConnectionMutex.then(async () => {
+        return new Promise<void>((resolveMutex) => {
+          Firebird.attach(this.options, (err: any, db: any) => {
+            this.connectionsBeingCreated--;
+
+            if (err) {
+              reject(new DatabaseError(
+                `Connection failed: ${err.message}`,
+                err
+              ));
+              resolveMutex();
+              return;
+            }
+
+            this.activeConnections++;
+            resolve(db);
+            resolveMutex();
+          });
+        });
       });
     });
   }
 
   private releaseConnection(connection: any): void {
+    this.activeConnections--;
+
     // Check if there are queued requests
     if (this.connectionQueue.length > 0) {
       const { resolve } = this.connectionQueue.shift()!;
+      this.activeConnections++;
       resolve(connection);
       return;
     }

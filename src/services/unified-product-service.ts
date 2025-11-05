@@ -33,14 +33,13 @@ class UnifiedProductService {
    */
   async getProductDetails(cproduto: string): Promise<ChatbotProductDetails | null> {
     try {
-      // Get product info, price, and stock in parallel
-      const [productResult, priceResult, stockResult] = await Promise.all([
+      // Get product info and stock in parallel (removed price query to reduce DB load)
+      const [productResult, stockResult] = await Promise.all([
         this.getProductInfo(cproduto),
-        this.getProductPrice(cproduto),
         this.getProductStock(cproduto),
       ]);
 
-      if (!productResult || !priceResult) {
+      if (!productResult) {
         return null;
       }
 
@@ -49,7 +48,6 @@ class UnifiedProductService {
         name: productResult.DESCRICAO,
         reference: productResult.REFERENCIA,
         quickDescription: this.createQuickDescription(productResult.DESCRICAO),
-        price: formatPrice(priceResult.PRECO),
         availability: formatAvailability(stockResult?.SALDO || 0),
       };
     } catch (error) {
@@ -214,34 +212,34 @@ class UnifiedProductService {
 
       // Primeiro tenta sem hífens e espaços (GraphQL: "WO-156" → Firebird: "WO156")
       const referenciaLimpa = referencia.replace(/[-\s]/g, '');
-      
-      logger.debug({ 
-        referenciaOriginal: referencia, 
-        referenciaLimpa 
+
+      logger.debug({
+        referenciaOriginal: referencia,
+        referenciaLimpa
       }, 'Buscando CPRODUTO por referência limpa (sem hífen)');
 
       let result = await firebirdService.executeQuery<ProductResult>(sql, [referenciaLimpa]);
 
       if (result.rows.length > 0) {
-        logger.debug({ 
-          referencia, 
-          referenciaLimpa, 
-          cproduto: result.rows[0]!.CPRODUTO 
+        logger.debug({
+          referencia,
+          referenciaLimpa,
+          cproduto: result.rows[0]!.CPRODUTO
         }, 'CPRODUTO encontrado sem hífen');
         return result.rows[0]!.CPRODUTO;
       }
 
       // Se não encontrou sem hífen, tenta com a referência original (com hífen)
-      logger.debug({ 
-        referenciaOriginal: referencia 
+      logger.debug({
+        referenciaOriginal: referencia
       }, 'Não encontrado sem hífen, tentando com hífen');
 
       result = await firebirdService.executeQuery<ProductResult>(sql, [referencia]);
 
       if (result.rows.length > 0) {
-        logger.debug({ 
-          referencia, 
-          cproduto: result.rows[0]!.CPRODUTO 
+        logger.debug({
+          referencia,
+          cproduto: result.rows[0]!.CPRODUTO
         }, 'CPRODUTO encontrado com hífen');
         return result.rows[0]!.CPRODUTO;
       }
@@ -252,6 +250,95 @@ class UnifiedProductService {
       logger.error({ referencia, error }, 'Error finding CPRODUTO by reference');
       // NÃO fazer throw do erro - retornar null para não quebrar toda a query
       return null;
+    }
+  }
+
+  /**
+   * Busca múltiplos produtos por referências em uma única query
+   * Retorna todas as informações necessárias (CPRODUTO, DESCRICAO, REFERENCIA, SALDO)
+   */
+  async findProductsByReferences(referencias: string[]): Promise<Map<string, ChatbotProductDetails>> {
+    if (referencias.length === 0) {
+      return new Map();
+    }
+
+    try {
+      // Limpa as referências (remove hífens e espaços)
+      const referenciasLimpas = referencias.map(ref => ref.replace(/[-\s]/g, '').toUpperCase());
+
+      logger.info({
+        totalReferences: referencias.length,
+        referenciasOriginais: referencias,
+        referenciasLimpas: referenciasLimpas
+      }, 'DEBUG: Iniciando busca em lote');
+
+      // Cria placeholders para a query IN (?, ?, ?)
+      const placeholders = referenciasLimpas.map(() => '?').join(', ');
+
+      const sql = `
+        SELECT DISTINCT
+          p.CPRODUTO,
+          p.DESCRICAO,
+          p.REFERENCIA,
+          COALESCE(s.SALDO, 0) AS SALDO
+        FROM PRODUTO p
+        LEFT JOIN SALDO s ON p.CPRODUTO = s.CPRODUTO
+        WHERE UPPER(p.REFERENCIA) IN (${placeholders})
+      `;
+
+      logger.info({
+        sql: sql.substring(0, 200),
+        parametros: referenciasLimpas
+      }, 'DEBUG: Executando query SQL');
+
+      const result = await firebirdService.executeQuery<ProductResult & StockResult>(
+        sql,
+        referenciasLimpas
+      );
+
+      logger.info({
+        rowsRetornadas: result.rows.length,
+        rows: result.rows.map(r => ({
+          CPRODUTO: r.CPRODUTO,
+          REFERENCIA: r.REFERENCIA,
+          SALDO: r.SALDO
+        }))
+      }, 'DEBUG: Resultado da query Firebird');
+
+      // Cria um mapa de referência limpa -> produto
+      const productMap = new Map<string, ChatbotProductDetails>();
+
+      result.rows.forEach(row => {
+        const referenciaLimpaDB = row.REFERENCIA.replace(/[-\s]/g, '').toUpperCase();
+        const availability = formatAvailability(row.SALDO || 0);
+
+        logger.info({
+          cproduto: row.CPRODUTO,
+          referenciaOriginalDB: row.REFERENCIA,
+          referenciaLimpaDB: referenciaLimpaDB,
+          saldoRaw: row.SALDO,
+          availabilityFormatted: availability
+        }, 'DEBUG: Criando produto com availability');
+
+        productMap.set(referenciaLimpaDB, {
+          cproduto: String(row.CPRODUTO),
+          name: row.DESCRICAO,
+          reference: row.REFERENCIA,
+          quickDescription: this.createQuickDescription(row.DESCRICAO),
+          availability: availability,
+        });
+      });
+
+      logger.info({
+        requestedCount: referencias.length,
+        foundCount: productMap.size,
+        mapKeys: Array.from(productMap.keys())
+      }, 'DEBUG: Busca em lote concluída - Mapa criado');
+
+      return productMap;
+    } catch (error) {
+      logger.error({ referencias, error }, 'Error finding products by references in batch');
+      throw error;
     }
   }
 
