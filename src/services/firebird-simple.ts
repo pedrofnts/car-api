@@ -61,14 +61,27 @@ class SimpleFirebirdService {
 
         db.query('SELECT 1 FROM RDB$DATABASE', [], (queryErr: any) => {
           db.detach();
-          
+
           if (queryErr) {
             reject(queryErr);
             return;
           }
-          
+
           resolve();
         });
+      });
+    });
+  }
+
+  private async validateConnection(db: any): Promise<boolean> {
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        resolve(false);
+      }, 5000); // Timeout de 5 segundos
+
+      db.query('SELECT 1 FROM RDB$DATABASE', [], (err: any) => {
+        clearTimeout(timeout);
+        resolve(!err);
       });
     });
   }
@@ -81,13 +94,36 @@ class SimpleFirebirdService {
   private creatingConnectionMutex = Promise.resolve();
 
   private async getConnection(): Promise<any> {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
       // Check if there's an available connection in the pool
       if (this.connectionPool.length > 0) {
         const connection = this.connectionPool.pop();
-        this.activeConnections++;
-        resolve(connection);
-        return;
+
+        // Validate connection health before using
+        const isValid = await this.validateConnection(connection);
+
+        if (isValid) {
+          this.activeConnections++;
+          resolve(connection);
+          return;
+        } else {
+          // Connection is dead, close it and try to get another one
+          try {
+            connection.detach();
+          } catch (error) {
+            // Ignore errors when closing dead connections
+            logger.debug({ error }, 'Error closing dead connection');
+          }
+
+          // Recursively try to get another connection from pool or create new one
+          try {
+            const newConnection = await this.getConnection();
+            resolve(newConnection);
+          } catch (error) {
+            reject(error);
+          }
+          return;
+        }
       }
 
       // Check total connections (active + being created)
@@ -224,6 +260,7 @@ class SimpleFirebirdService {
   }
 
   async destroy(): Promise<void> {
+    await this.closeAllConnections();
     logger.info('Firebird service destroyed');
   }
 }

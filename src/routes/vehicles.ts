@@ -70,7 +70,8 @@ const vehicleSearchQuerySchema = z.object({
   engineTechnicalCode: z.string().max(50).optional(),
   release: z.string().max(50).optional(),
   q: z.string().max(100).optional().default(''),
-  limit: z.string().optional().transform(val => val ? parseInt(val, 10) : 20)
+  limit: z.string().optional().transform(val => val ? parseInt(val, 10) : 20),
+  onlyAvailable: z.string().optional().transform(val => val === 'true')
 });
 
 interface VehicleModel {
@@ -337,6 +338,7 @@ export async function vehicleRoutes(fastify: FastifyInstance): Promise<void> {
       release?: string;
       q?: string;
       limit?: string;
+      onlyAvailable?: string;
     };
   }>('/vehicles/search', {
     schema: {
@@ -391,6 +393,11 @@ export async function vehicleRoutes(fastify: FastifyInstance): Promise<void> {
             type: 'string',
             description: 'Número máximo de resultados',
             default: '20'
+          },
+          onlyAvailable: {
+            type: 'string',
+            description: 'Filtrar apenas produtos disponíveis em estoque (true/false)',
+            default: 'false'
           }
         }
       },
@@ -420,10 +427,19 @@ export async function vehicleRoutes(fastify: FastifyInstance): Promise<void> {
                       cproduto: { type: 'string' },
                       name: { type: 'string' },
                       reference: { type: 'string' },
+                      price: {
+                        type: 'object',
+                        properties: {
+                          amount: { type: 'number' },
+                          currency: { type: 'string' },
+                          formatted: { type: 'string' }
+                        }
+                      },
                       availability: {
                         type: 'object',
                         properties: {
-                          available: { type: 'boolean' }
+                          available: { type: 'boolean' },
+                          quantity: { type: 'number' }
                         }
                       },
                       specifications: {
@@ -472,7 +488,8 @@ export async function vehicleRoutes(fastify: FastifyInstance): Promise<void> {
         engineTechnicalCode,
         release,
         q,
-        limit
+        limit,
+        onlyAvailable
       } = vehicleSearchQuerySchema.parse(request.query);
 
       // At least one filter must be provided
@@ -496,7 +513,8 @@ export async function vehicleRoutes(fastify: FastifyInstance): Promise<void> {
         engineTechnicalCode,
         release,
         q,
-        limit
+        limit,
+        onlyAvailable
       }, 'Buscando produtos por veículo com especificações detalhadas');
 
       const result = await vehicleSearchService.searchByVehicleDetailed(
@@ -510,6 +528,19 @@ export async function vehicleRoutes(fastify: FastifyInstance): Promise<void> {
         q,
         limit
       );
+
+      // Filter only available products if requested
+      if (onlyAvailable) {
+        const originalCount = result.totalFound;
+        result.products = result.products.filter(product => product.availability.available);
+        result.totalFound = result.products.length;
+        logger.info({
+          requestId,
+          originalCount,
+          availableCount: result.products.length
+        }, 'Filtered products by availability');
+      }
+
       const duration = Date.now() - startTime;
 
       logger.info({

@@ -33,23 +33,47 @@ class UnifiedProductService {
    */
   async getProductDetails(cproduto: string): Promise<ChatbotProductDetails | null> {
     try {
-      // Get product info and stock in parallel (removed price query to reduce DB load)
-      const [productResult, stockResult] = await Promise.all([
+      logger.info({ cproduto }, 'Getting product details (info, stock, price)');
+
+      // Get product info, stock, and price in parallel
+      const [productResult, stockResult, priceResult] = await Promise.all([
         this.getProductInfo(cproduto),
         this.getProductStock(cproduto),
+        this.getProductPrice(cproduto),
       ]);
 
+      logger.info({
+        cproduto,
+        hasProduct: !!productResult,
+        hasStock: !!stockResult,
+        hasPrice: !!priceResult,
+        stockValue: stockResult?.SALDO,
+        priceValue: priceResult?.PRECO
+      }, 'Product details fetched from Firebird');
+
       if (!productResult) {
+        logger.warn({ cproduto }, 'Product not found in PRODUTO table');
         return null;
       }
 
-      return {
+      const result = {
         cproduto: String(productResult.CPRODUTO),
         name: productResult.DESCRICAO,
         reference: productResult.REFERENCIA,
         quickDescription: this.createQuickDescription(productResult.DESCRICAO),
+        ...(priceResult && {
+          price: {
+            amount: priceResult.PRECO,
+            currency: 'BRL',
+            formatted: `R$ ${priceResult.PRECO.toFixed(2).replace('.', ',')}`
+          }
+        }),
         availability: formatAvailability(stockResult?.SALDO || 0),
       };
+
+      logger.info({ cproduto, hasPrice: !!result.price }, 'Returning product details');
+
+      return result;
     } catch (error) {
       logger.error({ cproduto, error }, 'Error getting product details');
       throw error;

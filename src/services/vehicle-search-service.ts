@@ -5,6 +5,7 @@
 
 import { graphqlClient } from './graphql-client.js';
 import { logger } from '@/utils/logger.js';
+import { unifiedProductService } from './unified-product-service.js';
 import type { ChatbotVehicleSearchResult, ChatbotProductDetails, ChatbotVehicleInfo } from '@/types/chatbot-responses.js';
 
 interface CatalogSearchInput {
@@ -141,20 +142,8 @@ class VehicleSearchService {
       if (model) vehicleInfo.model = model;
       if (year) vehicleInfo.modelYear = year;
 
-      // Return GraphQL data only (no Firebird enrichment)
-      const products: ChatbotProductDetails[] = nodes.slice(0, limit).map((node) => {
-        const partNumber = node.product.partNumber || 'N/A';
-        const product: ChatbotProductDetails = {
-          cproduto: partNumber,
-          name: node.product.summaryApplication || node.product.applicationDescription || 'Sem descrição',
-          reference: partNumber,
-          availability: { available: false }, // No stock info from GraphQL
-        };
-        if (node.product.specifications) {
-          product.specifications = node.product.specifications;
-        }
-        return product;
-      });
+      // Enrich with Firebird data (CPRODUTO, stock, price)
+      const products = await this.enrichProductsWithFirebirdData(nodes.slice(0, limit));
 
       return {
         vehicle: vehicleInfo,
@@ -338,7 +327,85 @@ class VehicleSearchService {
     }
   }
 
-  // Private helper methods - removed enrichProductsWithFirebirdData
+  /**
+   * Private helper: Enrich GraphQL products with Firebird data
+   * Maps partNumber (reference) to CPRODUTO and fetches stock/price
+   */
+  private async enrichProductsWithFirebirdData(nodes: ProductNode[]): Promise<ChatbotProductDetails[]> {
+    const enrichedProducts: ChatbotProductDetails[] = [];
+
+    logger.info({ totalNodes: nodes.length }, 'Starting Firebird enrichment for products');
+
+    for (const node of nodes) {
+      const partNumber = node.product.partNumber || 'N/A';
+
+      try {
+        // Try to find CPRODUTO by reference in Firebird
+        logger.info({ partNumber }, 'Looking up CPRODUTO by reference');
+        const cproduto = await unifiedProductService.findCprodutoByReference(partNumber);
+
+        if (cproduto) {
+          logger.info({ partNumber, cproduto }, 'CPRODUTO found, fetching details');
+
+          // Found in Firebird - get detailed info with stock
+          const firebirdData = await unifiedProductService.getProductDetails(cproduto);
+
+          logger.info({
+            cproduto,
+            hasPrice: !!firebirdData?.price,
+            price: firebirdData?.price,
+            hasAvailability: !!firebirdData?.availability
+          }, 'Firebird data retrieved');
+
+          if (firebirdData) {
+            enrichedProducts.push({
+              cproduto: firebirdData.cproduto,
+              name: firebirdData.name,
+              reference: firebirdData.reference,
+              ...(firebirdData.price && { price: firebirdData.price }),
+              availability: firebirdData.availability,
+              specifications: node.product.specifications || []
+            });
+          } else {
+            // CPRODUTO found but no details - use GraphQL data
+            logger.warn({ cproduto, partNumber }, 'CPRODUTO found but getProductDetails returned null');
+            enrichedProducts.push({
+              cproduto: cproduto,
+              name: node.product.summaryApplication || node.product.applicationDescription || 'Sem descrição',
+              reference: partNumber,
+              availability: { available: false },
+              specifications: node.product.specifications || []
+            });
+          }
+        } else {
+          // Not found in Firebird - return GraphQL data only
+          logger.info({ partNumber }, 'Product not found in Firebird, using GraphQL data only');
+
+          enrichedProducts.push({
+            cproduto: partNumber,
+            name: node.product.summaryApplication || node.product.applicationDescription || 'Sem descrição',
+            reference: partNumber,
+            availability: { available: false },
+            specifications: node.product.specifications || []
+          });
+        }
+      } catch (error) {
+        // Error fetching from Firebird - return GraphQL data only
+        logger.warn({ partNumber, error }, 'Error enriching product with Firebird data');
+
+        enrichedProducts.push({
+          cproduto: partNumber,
+          name: node.product.summaryApplication || node.product.applicationDescription || 'Sem descrição',
+          reference: partNumber,
+          availability: { available: false },
+          specifications: node.product.specifications || []
+        });
+      }
+    }
+
+    logger.info({ totalEnriched: enrichedProducts.length }, 'Firebird enrichment completed');
+    return enrichedProducts;
+  }
 
 }
 

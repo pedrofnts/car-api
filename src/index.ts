@@ -8,7 +8,6 @@ async function startServer(): Promise<void> {
     // Initialize Firebird connection
     logger.info('Initializing Firebird connection...');
     await firebirdService.initialize();
-    logger.info('Firebird connection initialized successfully');
 
     const app = createApp();
     const address = await app.listen({
